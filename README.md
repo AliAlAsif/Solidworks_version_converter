@@ -2,6 +2,12 @@
 
 **Convert SolidWorks future-version CAD files (e.g. saved in SolidWorks 2026) into a format that older SolidWorks versions (e.g. SolidWorks 2024) can open natively.**
 
+![SolidWorks Version Converter](docs/social-preview.png)
+
+![Browser UI preview](docs/demo-ui.png)
+
+*UI preview is illustrative.*
+
 ---
 
 ## 🌐 Try it in your browser (no install)
@@ -153,6 +159,48 @@ OK      Part2.SLDPRT -> Part2.x_t
 ...
 Converted: 3   Failed: 0   Skipped: 0
 ```
+
+---
+
+## 🛠️ Troubleshooting & limitations
+
+### `WriteError: legal_owners: 17 values for 16 elements`
+A bug in the underlying `sldprt2xt` library for **older-schema files** (it hard-codes
+17 array elements where older SolidWorks files declare 16). **This tool works
+around it automatically** by reading the file's real schema size and retrying.
+Both the CLI and the browser app include the fix.
+
+### `pas de géométrie Parasolid dans ce fichier` / "no Parasolid geometry"
+The file contains no solid geometry. This happens with:
+- **Assemblies (`.sldasm`)** — they only reference parts, never store geometry.
+  → Convert the **individual `.sldprt` parts** instead, then re-assemble.
+- **Drawings (`.slddrw`)** — no solid geometry either.
+- **Corrupt or non-SolidWorks files.**
+
+### Feature tree is not preserved
+This is **geometry-only**. The parametric history (sketches, extrudes, cuts,
+fillets…) is stored in version-specific data readable only by the SolidWorks
+version that created it. To keep the feature tree, open the file in the
+**newer SolidWorks** and use *Save As Previous Version* (up to 2 releases back,
+requires an active subscription).
+
+### "Newer than supported" / schema errors
+If a file was saved by a SolidWorks release newer than the `sldprt2xt` schema
+tables, update the package (`pip install -U sldprt2xt`), or export a
+Parasolid/STEP from a newer SolidWorks.
+
+### The browser page is slow the first time
+The first visit downloads the Python runtime (**~15–20 MB**). It is cached
+afterwards. Very large parts may take longer and are limited by browser memory.
+
+### Privacy
+The **browser app runs entirely on your machine** — files are never uploaded.
+The **CLI** is also fully offline. Nothing leaves your computer.
+
+### Licensing
+This project is **MIT**. It builds on [`sldprt2xt`](https://pypi.org/project/sldprt2xt/),
+which is **AGPL-3.0**; the browser app installs it at runtime rather than
+bundling it. Please keep the attribution when you redistribute.
 
 ---
 
