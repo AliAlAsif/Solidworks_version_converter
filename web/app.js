@@ -2,6 +2,10 @@
  * Runs the same `sldprt2xt` conversion logic as the CLI, entirely in the
  * browser via Pyodide (CPython compiled to WebAssembly).
  * Nothing is uploaded anywhere.
+ *
+ * The output is Parasolid (.x_t), a neutral kernel format. It opens in ANY
+ * SolidWorks version (roughly 2001 through today), so it works as a
+ * "convert to any older version" tool.
  */
 
 const PYODIDE_VERSION = "314.0.7";
@@ -24,7 +28,7 @@ const els = {
   resultItems: document.getElementById("resultItems"),
 };
 
-/** @type {{file: File, li: HTMLLIElement, statusEl: HTMLElement, status: string}[]} */
+/** @type {{file: File, li: HTMLLIElement, statusEl: HTMLElement, errorEl: HTMLElement, status: string}[]} */
 let selected = [];
 
 /* ------------------------------------------------------------------ */
@@ -33,6 +37,25 @@ let selected = [];
 function setStatus(text, mode = "loading") {
   els.statusText.textContent = text;
   els.dot.className = "dot " + mode;
+}
+
+/** Turn low-level conversion errors into clear, actionable messages. */
+function friendlyError(msg) {
+  const m = (msg || "").toLowerCase();
+  if (m.includes("pas de géométrie") || m.includes("no parasolid geometry")) {
+    return "No solid geometry found. Assemblies (.sldasm) and drawing files are not supported — convert the individual .sldprt parts instead.";
+  }
+  if (m.includes("schema")) {
+    return "This file was saved by a SolidWorks version newer than the converter supports. Update the 'sldprt2xt' package, or export a Parasolid/STEP from a newer SolidWorks.";
+  }
+  if (m.includes("not a valid") || m.includes("invalid") || m.includes("ole")) {
+    return "This file could not be read — it may be damaged or not a supported SolidWorks file.";
+  }
+  return msg || "Unknown error";
+}
+
+function isAssembly(name) {
+  return /\.sldasm$/i.test(name);
 }
 
 /* ------------------------------------------------------------------ */
@@ -49,7 +72,7 @@ async function boot() {
     await micropip.install("sldprt2xt");
 
     ready = true;
-    setStatus("Ready — drop your SolidWorks files.", "ready");
+    setStatus("Ready — drop your SolidWorks part files.", "ready");
   } catch (err) {
     console.error(err);
     setStatus("Failed to load runtime: " + (err && err.message ? err.message : err), "error");
@@ -60,31 +83,61 @@ async function boot() {
 /* File selection                                                      */
 /* ------------------------------------------------------------------ */
 function addFiles(fileList) {
-  const sldprt = Array.from(fileList).filter((f) =>
-    f.name.toLowerCase().endsWith(".sldprt")
-  );
+  const accepted = Array.from(fileList).filter((f) => {
+    const l = f.name.toLowerCase();
+    return l.endsWith(".sldprt") || l.endsWith(".sldasm");
+  });
 
-  for (const file of sldprt) {
-    // Skip duplicates by name+size.
+  if (accepted.length === 0) {
+    setStatus("Please choose SolidWorks .SLDPRT part files (assemblies are not supported).", "error");
+    return;
+  }
+
+  for (const file of accepted) {
     if (selected.some((s) => s.file.name === file.name && s.file.size === file.size)) {
       continue;
     }
+
     const li = document.createElement("li");
     li.className = "file-item";
+
+    const main = document.createElement("div");
+    main.className = "file-main";
 
     const name = document.createElement("span");
     name.className = "file-name";
     name.textContent = file.name;
 
+    const errorEl = document.createElement("span");
+    errorEl.className = "file-error hidden";
+
+    main.appendChild(name);
+    main.appendChild(errorEl);
+
     const statusEl = document.createElement("span");
     statusEl.className = "file-status";
-    statusEl.textContent = "Queued";
 
-    li.appendChild(name);
+    if (isAssembly(file.name)) {
+      statusEl.textContent = "Assembly — unsupported";
+      statusEl.classList.add("err");
+      errorEl.textContent =
+        "Assemblies are not supported. Convert the part files (.sldprt) inside the assembly instead.";
+      errorEl.classList.remove("hidden");
+    } else {
+      statusEl.textContent = "Queued";
+    }
+
+    li.appendChild(main);
     li.appendChild(statusEl);
     els.fileItems.appendChild(li);
 
-    selected.push({ file, li, statusEl, status: "queued" });
+    selected.push({
+      file,
+      li,
+      statusEl,
+      errorEl,
+      status: isAssembly(file.name) ? "failed" : "queued",
+    });
   }
 
   if (selected.length > 0) {
@@ -103,7 +156,8 @@ function clearAll() {
 }
 
 function updateConvertButton() {
-  els.convertBtn.disabled = !ready || selected.length === 0;
+  const convertible = selected.some((s) => s.status !== "failed");
+  els.convertBtn.disabled = !ready || !convertible;
 }
 
 /* ------------------------------------------------------------------ */
@@ -121,15 +175,14 @@ async function convertOne(entry) {
 
   entry.statusEl.textContent = "Converting…";
   entry.statusEl.className = "file-status";
+  entry.errorEl.classList.add("hidden");
 
   const data = new Uint8Array(await file.arrayBuffer());
 
-  // Prepare directories and write the input file into Pyodide's filesystem.
   pyodide.FS.mkdirTree(inDir);
   pyodide.FS.mkdirTree(outDir);
   pyodide.FS.writeFile(inPath, data);
 
-  // Run the converter.
   await pyodide.runPythonAsync(`
 import os
 from sldprt2xt import to_x_t
@@ -140,7 +193,6 @@ out_dir = ${JSON.stringify(outDir)}
 to_x_t(in_path, out_dir)
 `);
 
-  // Find the produced .x_t file.
   const produced = pyodide.FS.readdir(outDir).filter((n) => n.endsWith(".x_t"));
   if (produced.length === 0) {
     throw new Error("Converter produced no .x_t output.");
@@ -149,11 +201,9 @@ to_x_t(in_path, out_dir)
   const outPath = `${outDir}/${outName}`;
   const outBytes = pyodide.FS.readFile(outPath);
 
-  // Make a downloadable blob.
   const blob = new Blob([outBytes], { type: "application/octet-stream" });
   const url = URL.createObjectURL(blob);
 
-  // Add result row.
   const li = document.createElement("li");
   li.className = "result-item";
 
@@ -172,7 +222,6 @@ to_x_t(in_path, out_dir)
   els.resultItems.appendChild(li);
   els.results.classList.remove("hidden");
 
-  // Clean up Pyodide FS for this file.
   try {
     pyodide.FS.unlink(outPath);
     pyodide.FS.unlink(inPath);
@@ -187,7 +236,7 @@ to_x_t(in_path, out_dir)
 }
 
 async function convertAll() {
-  if (!ready || selected.length === 0) return;
+  if (!ready) return;
 
   els.convertBtn.disabled = true;
   els.clearBtn.disabled = true;
@@ -196,6 +245,10 @@ async function convertAll() {
   let failed = 0;
 
   for (const entry of selected) {
+    if (entry.status === "failed") {
+      failed++;
+      continue;
+    }
     if (entry.status === "done") {
       ok++;
       continue;
@@ -207,11 +260,12 @@ async function convertAll() {
       ok++;
     } catch (err) {
       console.error(err);
-      const msg = err && err.message ? err.message : String(err);
+      const raw = err && err.message ? err.message : String(err);
       entry.statusEl.textContent = "Failed";
       entry.statusEl.className = "file-status err";
       entry.status = "failed";
-      entry.statusEl.title = msg;
+      entry.errorEl.textContent = friendlyError(raw);
+      entry.errorEl.classList.remove("hidden");
       failed++;
     }
   }

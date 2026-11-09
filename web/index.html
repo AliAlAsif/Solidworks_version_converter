@@ -12,9 +12,13 @@
     <header class="hero">
       <h1>SolidWorks Version Converter</h1>
       <p class="subtitle">
-        Convert SolidWorks <strong>2026</strong> parts (<code>.sldprt</code>) into
-        <strong>Parasolid</strong> (<code>.x_t</code>) that <strong>SolidWorks 2024</strong>
-        can open — right in your browser.
+        Convert SolidWorks parts (<code>.sldprt</code>) saved in a <strong>newer</strong>
+        release into <strong>Parasolid</strong> (<code>.x_t</code>) that <strong>any older
+        SolidWorks version</strong> can open — right in your browser.
+      </p>
+      <p class="compat">
+        ✅ Output opens in <strong>any older SolidWorks</strong> (2001 → 2024+), because
+        Parasolid is a universal kernel format.
       </p>
       <p class="privacy">🔒 Your files never leave your computer. No upload, no server.</p>
     </header>
@@ -24,7 +28,7 @@
         <div class="dropzone-icon">📦</div>
         <p class="dropzone-title">Drop <code>.SLDPRT</code> files here</p>
         <p class="dropzone-sub">or click to browse</p>
-        <input id="fileInput" type="file" accept=".sldprt,.SLDPRT" multiple hidden />
+        <input id="fileInput" type="file" accept=".sldprt,.SLDPRT,.sldasm,.SLDASM" multiple hidden />
       </div>
 
       <div id="fileList" class="file-list hidden">
@@ -51,8 +55,8 @@
       <h3>⚠️ Important</h3>
       <ul>
         <li><strong>Geometry only.</strong> The parametric feature tree is not preserved; each part imports as a solid body.</li>
-        <li>To keep the feature tree, open the file in <strong>SolidWorks 2026+</strong> and use <em>Save As Previous Version</em>.</li>
-        <li>Assemblies (<code>.sldasm</code>) are not supported here — convert their parts.</li>
+        <li>To keep the feature tree, open the file in the <strong>newer SolidWorks</strong> and use <em>Save As Previous Version</em>.</li>
+        <li><strong>Assemblies (<code>.sldasm</code>) are NOT supported</strong> — they contain no solid geometry, only links to parts. Convert the individual <code>.sldprt</code> parts, then re-assemble them.</li>
         <li>First visit downloads the Python runtime (~15–20&nbsp;MB). It is cached afterwards.</li>
       </ul>
     </section>
