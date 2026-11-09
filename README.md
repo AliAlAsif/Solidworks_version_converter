@@ -84,10 +84,10 @@ or with the module:
 python -m sw_version_converter ./CAD ./converted_2024
 ```
 
-or the convenience script:
+or the convenience wrapper:
 
 ```bash
-python scripts/batch_convert.py ./CAD ./converted_2024
+python convert_parts.py ./CAD ./converted_2024
 ```
 
 ### Options
@@ -188,6 +188,13 @@ requires an active subscription).
 If a file was saved by a SolidWorks release newer than the `sldprt2xt` schema
 tables, update the package (`pip install -U sldprt2xt`), or export a
 Parasolid/STEP from a newer SolidWorks.
+
+### Supported file sizes
+- **Verified:** a **6.8 MB** part converts in **~18 s** using **~160 MB** of RAM.
+- Roughly extrapolating, a **~150 MB** part may reach the browser's practical
+  memory limit (WebAssembly is capped near **4 GB**), so it is **not guaranteed**
+  and mobile devices are not recommended for large files.
+- For very large parts, prefer the **CLI**, which has no browser memory cap.
 
 ### The browser page is slow the first time
 The first visit downloads the Python runtime (**~15–20 MB**). It is cached
