@@ -4,6 +4,27 @@
 
 ---
 
+## 🌐 Try it in your browser (no install)
+
+A zero-install web version lives in [`web/`](web/) and runs the **same
+conversion entirely inside your browser** using
+[Pyodide](https://pyodide.org) (Python in WebAssembly).
+
+> 🔒 **Your files never leave your computer** — there is no server and nothing
+> is uploaded.
+
+**Live demo:** <https://alialasif.github.io/Solidworks_version_converter/>
+
+To host it yourself, the included workflow
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) deploys the
+`web/` folder to **GitHub Pages** automatically:
+
+1. Push to `main`.
+2. Go to **Settings → Pages**, set **Source: GitHub Actions**.
+3. The site is published at `https://<user>.github.io/<repo>/`.
+
+---
+
 ## 🔍 What it does
 
 SolidWorks files saved in a **newer** release cannot be opened by **older** releases. This tool bridges that gap.
