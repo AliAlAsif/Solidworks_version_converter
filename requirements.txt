@@ -1,0 +1,2 @@
+sldprt2xt>=1.2.0
+olefile>=0.47

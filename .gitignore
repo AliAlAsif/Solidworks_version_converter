@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+*.x_t
+CAD/
+converted_2024/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

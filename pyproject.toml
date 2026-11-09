@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sw-version-converter"
+version = "1.0.0"
+description = "Convert SolidWorks future-version CAD part files (e.g. saved in SolidWorks 2026) into a format that older SolidWorks versions (e.g. SolidWorks 2024) can open natively."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Ali Al-Asif" }]
+keywords = ["solidworks", "cad", "sldprt", "parasolid", "step", "converter", "3d"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Manufacturing",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Multimedia :: Graphics",
+]
+
+dependencies = [
+    "sldprt2xt>=1.2.0",
+    "olefile>=0.47",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+sw-version-converter = "sw_version_converter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

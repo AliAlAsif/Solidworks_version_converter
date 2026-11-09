@@ -1,0 +1,255 @@
+' ============================================================================
+'  BatchDownsaveTo2024.swb
+'  ---------------------------------------------------------------------------
+'  Batch-converts SOLIDWORKS 2026 part/assembly files down to SOLIDWORKS 2024
+'  format, PRESERVING the feature tree (via the official "Save As Previous
+'  Version" API, introduced in SOLIDWORKS 2024).
+'
+'  REQUIREMENTS (important):
+'    * This macro MUST be run inside SOLIDWORKS 2026 (or newer).
+'    * An ACTIVE SOLIDWORKS Subscription license is required for the
+'      "Save As Previous Version" functionality.
+'    * You CANNOT run this in SOLIDWORKS 2024: 2024 cannot open 2026 files.
+'
+'  HOW TO USE:
+'    1. Open SOLIDWORKS 2026.
+'    2. Tools -> Macro -> Run...  and select this file (BatchDownsaveTo2024.swb).
+'    3. When prompted, confirm/paste the folder containing your 2026 files
+'       (defaults to the CAD folder shipped with this project).
+'    4. Converted files are written to a "_2024" subfolder.
+'    5. A log (conversion_report.txt) is written next to this macro.
+'
+'  NOTES:
+'    * Files go back at most TWO releases, so 2026 -> 2024 is the limit.
+'    * If a model uses features that did not exist in 2024, SOLIDWORKS shows a
+'      "Previous Release Check". Those incompatible features must be removed
+'      before that file can be saved to 2024. The log will list such failures.
+'    * Assemblies are saved with "Save All As Copy" so referenced parts are
+'      converted together.
+' ============================================================================
+
+' Target version: -2 means "two releases back" (2026 -> 2024).
+Const TARGET_VERSION_OFFSET As Integer = -2
+' Output subfolder name (created next to the source folder).
+Const OUTPUT_FOLDER_NAME As String = "_2024"
+' Optional prefix/suffix applied to every output file name (leave "" for none).
+Const OUTPUT_SUFFIX As String = ""
+
+Dim swApp As SldWorks.SldWorks
+
+Sub main()
+
+    Set swApp = Application.SldWorks
+
+    ' --- 1. Pick the source folder ----------------------------------------
+    Dim srcFolder As String
+    srcFolder = InputBox("Enter the folder containing your SOLIDWORKS 2026 files:", _
+                         "Batch Downsave to 2024", _
+                         GetDefaultFolder())
+
+    If srcFolder = "" Then
+        MsgBox "Cancelled."
+        Exit Sub
+    End If
+
+    If Right(srcFolder, 1) <> "\" Then srcFolder = srcFolder & "\"
+
+    Dim outFolder As String
+    outFolder = srcFolder & OUTPUT_FOLDER_NAME
+    If Dir(outFolder, vbDirectory) = "" Then MkDir outFolder
+
+    ' --- 2. Collect files --------------------------------------------------
+    Dim files As New Collection
+    CollectFiles srcFolder, files
+
+    If files.Count = 0 Then
+        MsgBox "No SOLIDWORKS files (.SLDPRT/.SLDASM) found in:" & vbCrLf & srcFolder
+        Exit Sub
+    End If
+
+    ' --- 3. Convert each file ---------------------------------------------
+    Dim log As String
+    log = "BatchDownsaveTo2024 report" & vbCrLf & _
+          "Source folder : " & srcFolder & vbCrLf & _
+          "Output folder : " & outFolder & vbCrLf & _
+          "Files found   : " & files.Count & vbCrLf & _
+          String(60, "-") & vbCrLf
+
+    Dim i As Integer
+    Dim f As String
+    Dim okCount As Integer
+    okCount = 0
+
+    For i = 1 To files.Count
+        f = CStr(files(i))
+        Dim result As String
+        result = ConvertOneFile(f, outFolder)
+        log = log & result & vbCrLf
+        If InStr(result, "OK") = 1 Then okCount = okCount + 1
+    Next i
+
+    log = log & String(60, "-") & vbCrLf & _
+          "Converted : " & okCount & " of " & files.Count & vbCrLf
+
+    ' --- 4. Write report ---------------------------------------------------
+    Dim logPath As String
+    logPath = srcFolder & "conversion_report.txt"
+    WriteTextFile logPath, log
+
+    MsgBox "Done. Converted " & okCount & " of " & files.Count & " files." & vbCrLf & _
+           "Output folder: " & outFolder & vbCrLf & _
+           "Report: " & logPath, vbInformation, "Batch Downsave Complete"
+
+End Sub
+
+' Convert a single file to the target previous version.
+Function ConvertOneFile(filePath As String, outFolder As String) As String
+
+    Dim errs As Long
+    Dim warns As Long
+    Dim doc As SldWorks.ModelDoc2
+    Dim swModel As SldWorks.ModelDoc2
+
+    Dim ext As String
+    ext = UCase(Right(filePath, 4))
+
+    Dim docType As Long
+    If ext = ".PRT" Then
+        docType = swDocPART
+    ElseIf ext = ".ASM" Then
+        docType = swDocASSEMBLY
+    Else
+        ConvertOneFile = "SKIP " & GetFileName(filePath) & " (not part/assembly)"
+        Exit Function
+    End If
+
+    ' Open (silently, read-only so we never mutate the source).
+    Set swModel = swApp.OpenDoc6(filePath, docType, swOpenDocOptions_Silent Or swOpenDocOptions_ReadOnly, "", errs, warns)
+    If swModel Is Nothing Then
+        ConvertOneFile = "FAIL " & GetFileName(filePath) & " (open error " & errs & ")"
+        Exit Function
+    End If
+
+    On Error GoTo convErr
+
+    ' Build the advanced save-as options with the previous-version target.
+    Dim opts As SldWorks.AdvancedSaveAsOptions
+    Set opts = swModel.Extension.GetAdvancedSaveAsOptions(swSaveWithReferencesOptions_e.swSaveWithReferencesOptions_None)
+
+    opts.SaveAsPreviousVersion = GetVersionNumber(TARGET_VERSION_OFFSET)
+    opts.SaveAllAsCopy = True
+
+    ' Rename references (apply prefix/suffix) if requested.
+    Dim vIds As Variant
+    Dim vNames As Variant
+    Dim vPaths As Variant
+    opts.GetItemsNameAndPath vIds, vNames, vPaths
+
+    Dim j As Integer
+    For j = 0 To UBound(vNames)
+        vNames(j) = ComposeName(CStr(vNames(j)))
+    Next j
+    opts.ModifyItemsNameAndPath vIds, vNames, vPaths
+
+    ' Save into the output folder.
+    Dim outPath As String
+    outPath = outFolder & ComposeName(GetFileName(filePath))
+
+    If swModel.Extension.SaveAs3(outPath, swSaveAsVersion_e.swSaveAsCurrentVersion, _
+            swSaveAsOptions_e.swSaveAsOptions_Silent, Nothing, opts, errs, warns) Then
+        ConvertOneFile = "OK   " & GetFileName(filePath)
+    Else
+        ConvertOneFile = "FAIL " & GetFileName(filePath) & " (save error " & errs & _
+                         "; may contain features incompatible with 2024)"
+    End If
+
+    swApp.CloseDoc swModel.GetTitle
+    Exit Function
+
+convErr:
+    ConvertOneFile = "FAIL " & GetFileName(filePath) & " (" & Err.Description & ")"
+    swApp.CloseDoc swModel.GetTitle
+    Resume Next
+
+End Function
+
+' Convert an offset (-1, -2) into the numeric SOLIDWORKS version code.
+Function GetVersionNumber(swVers As Integer) As Integer
+
+    Dim revNmb As Integer
+    revNmb = CInt(Split(swApp.RevisionNumber, ".")(0))
+
+    ' Revision 30 = SOLIDWORKS 2022 = version 15000; +1000 per release.
+    Const SW_2022_REVISION As Integer = 30
+    Const SW_2022_VERSION As Integer = 15000
+    Const SW_VERSION_STEP As Integer = 1000
+
+    Dim versOffset As Integer
+    versOffset = revNmb + swVers - SW_2022_REVISION
+
+    If versOffset >= 0 Then
+        GetVersionNumber = SW_2022_VERSION + SW_VERSION_STEP * versOffset
+    Else
+        Err.Raise vbError, "", "Minimum supported version is SOLIDWORKS 2022"
+    End If
+
+End Function
+
+' Recursively collect .SLDPRT and .SLDASM files.
+Sub CollectFiles(folder As String, ByRef coll As Collection)
+
+    Dim f As String
+    f = Dir(folder & "*.sldprt")
+    Do While f <> ""
+        coll.Add folder & f
+        f = Dir
+    Loop
+
+    f = Dir(folder & "*.sldasm")
+    Do While f <> ""
+        coll.Add folder & f
+        f = Dir
+    Loop
+
+    Dim d As String
+    d = Dir(folder, vbDirectory)
+    Do While d <> ""
+        If d <> "." And d <> ".." Then
+            If (GetAttr(folder & d) And vbDirectory) = vbDirectory Then
+                CollectFiles folder & d & "\", coll
+            End If
+        End If
+        d = Dir
+    Loop
+
+End Sub
+
+Function ComposeName(fileName As String) As String
+    Dim ext As String
+    ext = Right(fileName, Len(".SLDXXX"))
+    ComposeName = Left(fileName, Len(fileName) - Len(ext)) & OUTPUT_SUFFIX & ext
+End Function
+
+Function GetFileName(path As String) As String
+    GetFileName = Right(path, Len(path) - InStrRev(path, "\"))
+End Function
+
+Function GetDefaultFolder() As String
+    ' Default to the CAD folder next to this macro's project, if it exists.
+    Dim p As String
+    p = Left(Application.SldWorks.GetCurrentMacroPathName(), _
+             InStrRev(Application.SldWorks.GetCurrentMacroPathName(), "\"))
+    If Dir(p & "CAD", vbDirectory) <> "" Then
+        GetDefaultFolder = p & "CAD\"
+    Else
+        GetDefaultFolder = p
+    End If
+End Function
+
+Sub WriteTextFile(path As String, content As String)
+    Dim fnum As Integer
+    fnum = FreeFile
+    Open path For Output As #fnum
+    Print #fnum, content
+    Close #fnum
+End Sub
