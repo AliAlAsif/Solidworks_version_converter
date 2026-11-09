@@ -54,15 +54,72 @@ def iter_part_files(root: str) -> List[str]:
     return found
 
 
+def _legal_owners_capacity(decoded) -> int | None:
+    """Return the schema-declared size of an ATTRIB_DEF ``legal_owners`` array."""
+    try:
+        for spec in decoded.layouts.get(80, []):
+            if getattr(spec, "name", None) == "legal_owners":
+                return int(spec.n_elts)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _fit_len(values, size: int):
+    """Pad/truncate a tuple of logical flags to ``size`` elements."""
+    values = tuple(values)
+    if len(values) >= size:
+        return values[:size]
+    return values + (0,) * (size - len(values))
+
+
+def to_x_t_compat(source: str, output_dir: str):
+    """``sldprt2xt.to_x_t`` with a workaround for older-schema files.
+
+    ``sldprt2xt`` writes ``legal_owners`` arrays with a hard-coded length of 17.
+    Files saved by older SolidWorks releases declare only 16 elements, so the
+    library raises ``WriteError: legal_owners: 17 values for 16 elements``.
+    When that happens we adapt the arrays to the file's real schema size and
+    retry.
+    """
+    from sldprt2xt import ConversionError, to_x_t
+
+    try:
+        return to_x_t(str(source), str(output_dir))
+    except ConversionError as exc:
+        if "legal_owners" not in str(exc):
+            raise
+
+        # Import internals lazily: the workaround must not affect normal use.
+        from sldprt2xt.convert import _decode
+        from sldprt2xt.schemas import find_folder
+        from sldprt2xt.xt import edit as _edit
+
+        decoded = _decode(Path(source), find_folder(None))
+        capacity = _legal_owners_capacity(decoded)
+        if not capacity:
+            raise
+
+        old_multi = _edit.MULTI_BODY_LEGAL_OWNERS
+        old_colour = _edit.COLOUR_LEGAL_OWNERS
+        try:
+            _edit.MULTI_BODY_LEGAL_OWNERS = _fit_len(old_multi, capacity)
+            _edit.COLOUR_LEGAL_OWNERS = _fit_len(old_colour, capacity)
+            return to_x_t(str(source), str(output_dir))
+        finally:
+            _edit.MULTI_BODY_LEGAL_OWNERS = old_multi
+            _edit.COLOUR_LEGAL_OWNERS = old_colour
+
+
 def convert_part(source: str, output_dir: str) -> ConversionOutcome:
     """Convert a single ``.sldprt`` into a ``.x_t`` Parasolid file."""
-    from sldprt2xt import ConversionError, to_x_t
+    from sldprt2xt import ConversionError
 
     target_name = Path(source).stem + ".x_t"
     out_path = os.path.join(str(output_dir), target_name)
 
     try:
-        to_x_t(str(source), str(output_dir))
+        to_x_t_compat(str(source), str(output_dir))
     except ConversionError as exc:  # noqa: BLE001
         return ConversionOutcome(source, out_path, "failed", f"ConversionError: {exc}")
     except Exception as exc:  # noqa: BLE001

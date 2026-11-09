@@ -185,12 +185,52 @@ async function convertOne(entry) {
 
   await pyodide.runPythonAsync(`
 import os
-from sldprt2xt import to_x_t
+from pathlib import Path
+from sldprt2xt import to_x_t, ConversionError
 
 in_path = ${JSON.stringify(inPath)}
 out_dir = ${JSON.stringify(outDir)}
+os.makedirs(out_dir, exist_ok=True)
 
-to_x_t(in_path, out_dir)
+
+def _legal_owners_capacity(decoded):
+    for spec in decoded.layouts.get(80, []):
+        if getattr(spec, "name", None) == "legal_owners":
+            return int(spec.n_elts)
+    return None
+
+
+def _fit_len(values, size):
+    values = tuple(values)
+    if len(values) >= size:
+        return values[:size]
+    return values + (0,) * (size - len(values))
+
+
+try:
+    to_x_t(in_path, out_dir)
+except ConversionError as exc:
+    if "legal_owners" not in str(exc):
+        raise
+    # Older SolidWorks schema declares 16 elements, but sldprt2xt hard-codes
+    # 17. Adapt the arrays to the file's real schema size and retry.
+    from sldprt2xt.convert import _decode
+    from sldprt2xt.schemas import find_folder
+    from sldprt2xt.xt import edit as _edit
+
+    decoded = _decode(Path(in_path), find_folder(None))
+    capacity = _legal_owners_capacity(decoded)
+    if not capacity:
+        raise
+    old_multi = _edit.MULTI_BODY_LEGAL_OWNERS
+    old_colour = _edit.COLOUR_LEGAL_OWNERS
+    try:
+        _edit.MULTI_BODY_LEGAL_OWNERS = _fit_len(old_multi, capacity)
+        _edit.COLOUR_LEGAL_OWNERS = _fit_len(old_colour, capacity)
+        to_x_t(in_path, out_dir)
+    finally:
+        _edit.MULTI_BODY_LEGAL_OWNERS = old_multi
+        _edit.COLOUR_LEGAL_OWNERS = old_colour
 `);
 
   const produced = pyodide.FS.readdir(outDir).filter((n) => n.endsWith(".x_t"));
